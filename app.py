@@ -22,6 +22,7 @@ regimenes = ['Contributivo', 'Subsidiado', 'Especial']
 
 # Aplicación Dash optimizada
 app = Dash(__name__)
+server = app.server
 
 app.layout = html.Div([
     html.H1('Dashboard Colombia - Afiliados por Régimen', 
