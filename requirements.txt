@@ -1,8 +1,9 @@
 dash==2.14.1
 pandas==1.5.3
 numpy==1.21.6
-geopandas==0.12.2
+geopandas==0.10.2
 plotly==5.13.0
-gunicorn==21.2.0
-shapely==1.8.5
-pyproj==3.4.1
+gunicorn==20.1.0
+shapely==1.8.2
+fiona==1.8.21
+pyproj==3.2.1
