@@ -1,11 +1,11 @@
 import os
+import json
 import warnings
 warnings.filterwarnings('ignore')
 
-# Importar librerías
+# Importar librerías (sin geopandas para el shapefile)
 try:
     import pandas as pd
-    import geopandas as gpd
     import plotly.express as px
     import plotly.graph_objects as go
     from dash import Dash, dcc, html, Input, Output, callback
@@ -18,40 +18,35 @@ except ImportError as e:
 app = Dash(__name__)
 server = app.server
 
-# Variables globales para almacenar datos
+# Variables globales
 df = None
-merged_data = None
+geojson_data = None
 regimenes = ['Contributivo', 'Subsidiado', 'Especial']
 data_loaded = False
 
-# Función para cargar datos (se llama una sola vez)
+# Función para cargar datos
 def load_data():
-    global df, merged_data, data_loaded
+    global df, geojson_data, data_loaded
     
     try:
         print("📂 Cargando datos CSV...")
         df = pd.read_csv('afiliados_por_departamento_y_regimen_limpio.csv', dtype={"CodDepto": "str"})
         print(f"✅ CSV cargado: {len(df)} filas")
         
-        print("🗺️ Cargando shapefile...")
-        # Optimizar la carga del shapefile
-        shape_colombia = gpd.read_file('coordenadas/COLOMBIA/COLOMBIA.shp')
-        print(f"✅ Shapefile cargado: {len(shape_colombia)} geometrías")
+        print("🗺️ Cargando GeoJSON...")
+        # Cargar GeoJSON en lugar del shapefile
+        with open('colombia.geojson', 'r', encoding='utf-8') as f:
+            geojson_data = json.load(f)
+        print(f"✅ GeoJSON cargado: {len(geojson_data['features'])} características")
         
-        # Merge con shapefile
-        merged_data = shape_colombia.merge(
-            df,
-            left_on='DPTO_CCDGO',
-            right_on='CodDepto'
-        )
-        print("✅ Merge completado exitosamente")
         data_loaded = True
+        print("✅ Todos los datos cargados exitosamente")
         
     except Exception as e:
         print(f"❌ Error cargando datos: {e}")
         data_loaded = False
 
-# Cargar datos al iniciar (pero no bloquear el inicio de la app)
+# Cargar datos de forma asíncrona
 import threading
 def load_data_async():
     thread = threading.Thread(target=load_data)
@@ -60,7 +55,7 @@ def load_data_async():
 
 load_data_async()
 
-# Layout de la aplicación (sin bloquear en la carga de datos)
+# Layout de la aplicación
 app.layout = html.Div([
     html.H1('Dashboard Colombia - Afiliados por Régimen', 
             style={'textAlign': 'center', 'marginBottom': 20}),
@@ -89,7 +84,7 @@ app.layout = html.Div([
         html.P("🔄 Cargando datos...", style={'textAlign': 'center', 'color': '#666'})
     ]),
     
-    # Contenido principal (oculto inicialmente)
+    # Contenido principal
     html.Div(id='main-content', style={'display': 'none'}, children=[
         # Filtro
         html.Div([
@@ -174,7 +169,7 @@ def show_content(_):
 )
 def update_dashboard(regimen_seleccionado):
     # Verificar si los datos están cargados
-    if not data_loaded or merged_data is None or df is None:
+    if not data_loaded or df is None or geojson_data is None:
         error_fig = go.Figure()
         error_fig.add_annotation(text="🔄 Los datos aún se están cargando...", showarrow=False)
         error_message = "Los datos se están cargando. Por favor espera unos segundos."
@@ -192,13 +187,34 @@ def update_dashboard(regimen_seleccionado):
         
         return error_fig, error_fig, error_card, error_message
     
-    # Crear mapa
+    # Preparar datos para el mapa
     try:
+        # Crear un DataFrame con los datos de ubicación
+        location_data = []
+        for feature in geojson_data['features']:
+            depto_code = feature['properties']['DPTO_CCDGO']
+            depto_name = feature['properties']['DPTO_CNMBR']
+            
+            # Buscar los datos del departamento en el CSV
+            depto_data = df[df['CodDepto'] == depto_code]
+            if not depto_data.empty:
+                location_data.append({
+                    'CodDepto': depto_code,
+                    'Departamento': depto_name,
+                    'Contributivo': depto_data['Contributivo'].iloc[0],
+                    'Subsidiado': depto_data['Subsidiado'].iloc[0],
+                    'Especial': depto_data['Especial'].iloc[0]
+                })
+        
+        map_df = pd.DataFrame(location_data)
+        
+        # Crear mapa con GeoJSON
         fig_mapa = px.choropleth_mapbox(
-            merged_data,
-            geojson=merged_data.geometry,
-            locations=merged_data.index,
+            map_df,
+            geojson=geojson_data,
+            locations='CodDepto',
             color=regimen_seleccionado,
+            featureidkey="properties.DPTO_CCDGO",
             color_continuous_scale='Viridis',
             mapbox_style='carto-positron',
             zoom=4,
@@ -211,7 +227,9 @@ def update_dashboard(regimen_seleccionado):
             margin={'r': 0, 't': 0, 'l': 0, 'b': 0},
             height=500
         )
+        
     except Exception as e:
+        print(f"❌ Error creando mapa: {e}")
         fig_mapa = go.Figure()
         fig_mapa.add_annotation(text=f"Error creando mapa: {str(e)}", showarrow=False)
     
@@ -300,13 +318,3 @@ def update_dashboard(regimen_seleccionado):
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=8050)
-
-
-
-
-
-
-
-
-
-
